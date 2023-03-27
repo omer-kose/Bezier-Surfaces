@@ -318,7 +318,8 @@ void initScene(const char* fileName)
     int numPy, numPx;
     fileStream >> numPy >> numPx;
     //Now read the Control Points
-    float CP[numPy][numPx];
+    //float CP[numPy][numPx];
+    std::vector<std::vector<float>> CP(numPy, std::vector<float>(numPx));
     for(int i = 0; i < numPy; ++i)
     {
         for(int j = 0; j < numPx; ++j)
@@ -408,7 +409,8 @@ void renderBezierSurface(const BezierSurface& surf, Shader& shader, int i)
     glm::mat4 PV = projection * view;
     //Set uniforms
     shader.setInt("i", i);
-    shader.setMat4("PVM", PV * model);
+    shader.setMat4("modelMat", model);
+    shader.setMat4("PV", PV);
     //shader.setVec3Array("P", 16, surf.P[0]);
     glUniform3fv(glGetUniformLocation(shader.getID(), "P"), 16, glm::value_ptr(surf.P[0]));
     glBindVertexArray(surf.VAO);
@@ -422,7 +424,7 @@ int main()
 	Shader shader("Shaders/bezier/bezier.vert",
                   "Shaders/bezier/bezier.frag");
 
-    initScene("input3.txt");
+    initScene("input2.txt");
 	// render loop
 	// -----------
 	while (!glfwWindowShouldClose(window))
