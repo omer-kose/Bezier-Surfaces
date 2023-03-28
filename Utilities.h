@@ -7,8 +7,8 @@
 
 //WILL STORE GLOBAL VARIABLES
 
-static constexpr unsigned int SCR_WIDTH = 1920;
-static constexpr unsigned int SCR_HEIGHT = 1080;
+static constexpr unsigned int SCR_WIDTH = 800;
+static constexpr unsigned int SCR_HEIGHT = 600;
 
 #endif
 

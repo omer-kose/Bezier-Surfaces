@@ -104,7 +104,7 @@ void main()
     vec3 dV = eval_dV();
     vec3 n = normalize(cross(dV, dU));
 
-    fragWorldPos = modelMat * vec4(p, 1);
+    fragWorldPos = modelMat * vec4(p, 1.0);
 	fragWorldNor = inverse(transpose(mat3x3(modelMat))) * n;
 
     gl_Position = PV * modelMat * vec4(p, 1.0);

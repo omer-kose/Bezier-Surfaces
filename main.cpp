@@ -34,12 +34,9 @@ double lastFrame = 0.0;
 //Window
 GLFWwindow* window;
 
-//Light
-struct Light
-{
-    glm::vec3 pos;
-    glm::vec3 intensity;
-};
+//Light data
+std::vector<glm::vec3> lightPositions;
+std::vector<glm::vec3> lightIntensities;
 
 
 struct BezierSurface
@@ -57,11 +54,13 @@ struct BezierSurface
 
 
 //Scene Properies
-std::vector<Light> lights;
 std::vector<BezierSurface> bezierSurfaces;
+int numPx; //Number of horizontal control points
+int numPy; //Number of vertical control points
+std::vector<std::vector<float>> CP;
 float coordMultiplier = 1.0f;
 int numSamples = 10;
-float rotationAngle = -30.0;
+float rotationAngle = -30.0f;
 
 
 void updateDeltaTime()
@@ -77,40 +76,7 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 	glViewport(0, 0, width, height);
 }
 
-//Function that will process the inputs, such as keyboard inputs
-void processInput(GLFWwindow* window)
-{
-	//If pressed glfwGetKey return GLFW_PRESS, if not it returns GLFW_RELEASE
-	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-	{
-		glfwSetWindowShouldClose(window, true);
-	}
 
-	int speedUp = 1; //Default
-
-	//If shift is pressed move the camera faster
-	if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
-		speedUp = 2;	
-	
-	//Camera movement
-	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-		camera.processKeyboard(FORWARD, deltaTime, speedUp);
-	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-		camera.processKeyboard(BACKWARD, deltaTime, speedUp);
-	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-		camera.processKeyboard(LEFT, deltaTime, speedUp);
-	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-		camera.processKeyboard(RIGHT, deltaTime, speedUp);
-
-
-
-	//Camera y-axis movement
-	if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
-		camera.moveCameraUp(deltaTime, speedUp);
-	if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
-		camera.moveCameraDown(deltaTime, speedUp);
-
-}
 
 //Callback function for mouse position inputs
 void mouse_callback(GLFWwindow* window, double xPos, double yPos)
@@ -239,6 +205,9 @@ void renderTestRectangle(GLuint VAO, Shader shader)
 */
 void triangulate(BezierSurface& surf)
 {
+    //Clear uv and triangles as this function can be called multiple times in the program
+    surf.uv.clear();
+    surf.tris.clear();
     int si; //Sample index (temporary var)
     float sampleSpacing = numSamples - 1;
     surf.uv.reserve(numSamples * numSamples);
@@ -293,40 +262,34 @@ void setupOpenGLBuffers(BezierSurface& surf)
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 }
 
-/*
-    Reads the file and initializes the data structs needed
-*/
-void initScene(const char* fileName)
+
+glm::vec3 determineBezierTileOffset()
 {
-    std::ifstream fileStream(fileName);
-    //Number of point lights
-    int numPointLights;
-    fileStream >> numPointLights;
-    //Initialize the points lights
-    lights.resize(numPointLights);
-    for(int i = 0; i < numPointLights; ++i)
+    int numBezierX = numPx / 4;
+    int numBezierY = numPy / 4;
+    float s = coordMultiplier / std::max(numBezierY, numBezierX);
+    glm::vec3 offset;
+    if(numBezierX == numBezierY) //If the whole surface is square
     {
-        Light& l = lights[i];
-        fileStream >> l.pos.x;
-        fileStream >> l.pos.y;
-        fileStream >> l.pos.z;
-        fileStream >> l.intensity.x;
-        fileStream >> l.intensity.y;
-        fileStream >> l.intensity.z;
+        offset = glm::vec3(0.5 * s - coordMultiplier / 2, coordMultiplier / 2 - 0.5 * s, 0.0);
     }
-    //Number of CP's
-    int numPy, numPx;
-    fileStream >> numPy >> numPx;
-    //Now read the Control Points
-    //float CP[numPy][numPx];
-    std::vector<std::vector<float>> CP(numPy, std::vector<float>(numPx));
-    for(int i = 0; i < numPy; ++i)
+    else //Non-square
     {
-        for(int j = 0; j < numPx; ++j)
+        if(numBezierX > numBezierY) //X dominated case
         {
-            fileStream >> CP[i][j];
+            offset = glm::vec3(0.5 * s - coordMultiplier / 2, -coordMultiplier / 2 + s * numBezierY - 0.5 * s, 0.0);
+        }
+        else //Y dominated case
+        {
+            offset = glm::vec3(0.5 * s - coordMultiplier / 2, coordMultiplier / 2 - 0.5 * s, 0.0);
         }
     }
+    
+    return offset;
+}
+
+void createBezierSurfaces()
+{
     //Each 4x4 subblock represents a Bezier Surface iterate through and create the Surfaces
     float spacing = 1.0 / 3.0; //Spacing between the CP's in XY plane.
     //Number of Bezier surfaces along each axis
@@ -336,23 +299,7 @@ void initScene(const char* fileName)
     //Each surface has the same length and uniformly squared. So, each surface is actually
     //a square
     float s = coordMultiplier / std::max(numBezierY, numBezierX);
-    glm::vec3 offset; //Offset to map the first surface to the top left.
-    //Prepeare the offset to partition the whole surface correctly
-    if(numBezierX == numBezierY) //If the whole surface is square
-    {
-        offset = glm::vec3(0.5 * s - 0.5, 0.5 - 0.5 * s, 0.0);
-    }
-    else //Non-square
-    {
-        if(numBezierX > numBezierY) //X dominated case
-        {
-            offset = glm::vec3(0.5 * s - 0.5, -0.5 + s * numBezierY - 0.5 * s, 0.0);
-        }
-        else //Y dominated case
-        {
-            offset = glm::vec3(0.5 * s - 0.5, 0.5 - 0.5 * s, 0.0);
-        }
-    }
+    glm::vec3 offset = determineBezierTileOffset(); //Offset to map the first surface to the top left.
     bezierSurfaces.reserve(numBezierX * numBezierY);
     for(int i = 0; i < numBezierY; ++i)
     {
@@ -382,6 +329,43 @@ void initScene(const char* fileName)
             bezierSurfaces.push_back(surf);
         }
     }
+}
+
+/*
+    Reads the file and initializes the data structs needed
+*/
+void initScene(const char* fileName)
+{
+    std::ifstream fileStream(fileName);
+    //Number of point lights
+    int numPointLights;
+    fileStream >> numPointLights;
+    //Initialize the points lights
+    lightPositions.resize(numPointLights);
+    lightIntensities.resize(numPointLights);
+    for(int i = 0; i < numPointLights; ++i)
+    {
+        fileStream >> lightPositions[i].x;
+        fileStream >> lightPositions[i].y;
+        fileStream >> lightPositions[i].z;
+        fileStream >> lightIntensities[i].x;
+        fileStream >> lightIntensities[i].y;
+        fileStream >> lightIntensities[i].z;
+    }
+    //Number of CP's
+    fileStream >> numPy >> numPx;
+    //Now read the Control Points
+    CP.resize(numPy);
+    for(int i = 0; i < numPy; ++i)
+    {
+        CP[i].resize(numPx);
+        for(int j = 0; j < numPx; ++j)
+        {
+            fileStream >> CP[i][j];
+        }
+    }
+    
+    createBezierSurfaces();
     
     //Triangulate surfaces and setup their OpenGL data
     for(int i = 0; i < bezierSurfaces.size(); ++i)
@@ -396,7 +380,7 @@ void initScene(const char* fileName)
 /*
     Renders a single bezier surface
 */
-void renderBezierSurface(const BezierSurface& surf, Shader& shader, int i)
+void renderBezierSurface(BezierSurface& surf, Shader& shader, int i)
 {
     shader.use();
     glm::mat4 view = camera.getViewMatrix();
@@ -408,15 +392,115 @@ void renderBezierSurface(const BezierSurface& surf, Shader& shader, int i)
     model = glm::scale(model, surf.scaling);
     glm::mat4 PV = projection * view;
     //Set uniforms
-    shader.setInt("i", i);
+    //Vertex Shader uniforms
     shader.setMat4("modelMat", model);
     shader.setMat4("PV", PV);
-    //shader.setVec3Array("P", 16, surf.P[0]);
-    glUniform3fv(glGetUniformLocation(shader.getID(), "P"), 16, glm::value_ptr(surf.P[0]));
+    shader.setVec3Array("P", 16, surf.P[0]);
+    //glUniform3fv(glGetUniformLocation(shader.getID(), "P"), 16, glm::value_ptr(surf.P[0]));
+    //Fragment Shader uniforms
+    shader.setVec3("eyePos", camera.getPosition());
+    shader.setInt("numLights", (int)lightPositions.size());
+    shader.setVec3Array("lightPositions", (int)lightPositions.size(), lightPositions[0]);
+    shader.setVec3Array("lightIntensities", (int)lightIntensities.size(), lightIntensities[0]);
     glBindVertexArray(surf.VAO);
     //total 6 indices since we have triangles
     glDrawElements(GL_TRIANGLES, 3 * surf.tris.size(), GL_UNSIGNED_INT, 0);
 }
+
+
+//Function that will process the inputs, such as keyboard inputs
+void processInput(GLFWwindow* window)
+{
+    //If pressed glfwGetKey return GLFW_PRESS, if not it returns GLFW_RELEASE
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+    {
+        glfwSetWindowShouldClose(window, true);
+    }
+
+    //Sample size controller
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+    {
+        numSamples = std::min(numSamples+2, 80);
+        //Changing numSamples changes the triangulation and thus the OpenGL Buffers.
+        for(int i = 0; i < bezierSurfaces.size(); ++i)
+        {
+            triangulate(bezierSurfaces[i]);
+            setupOpenGLBuffers(bezierSurfaces[i]);
+        }
+        
+    }
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+    {
+        numSamples = std::max(numSamples-2, 2);
+        for(int i = 0; i < bezierSurfaces.size(); ++i)
+        {
+            triangulate(bezierSurfaces[i]);
+            setupOpenGLBuffers(bezierSurfaces[i]);
+        }
+    }
+    
+    //Size controller
+    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
+    {
+        coordMultiplier += 0.1;
+        //Update the offset and the scale
+        int numBezierX = numPx / 4;
+        int numBezierY = numPy / 4;
+        //Scaling of each bezier surface. This is also equal to the side length of each surface.
+        //Each surface has the same length and uniformly squared. So, each surface is actually
+        //a square
+        float s = coordMultiplier / std::max(numBezierY, numBezierX);
+        glm::vec3 offset = determineBezierTileOffset();
+        for(int i = 0; i < numBezierY; ++i)
+        {
+            for(int j = 0; j < numBezierX; ++j)
+            {
+                BezierSurface& surf = bezierSurfaces[i * numBezierY + j];
+                //Set the scaling
+                surf.scaling = glm::vec3(s, s, 1.0);
+                //Set the translation to send the current bezier surface to the correct place
+                surf.translation = offset + glm::vec3(j * s, -i * s, 0.0);
+            }
+        }
+        
+    }
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+    {
+        coordMultiplier = std::max(coordMultiplier - 0.1, 0.1);
+        //Update the offset and the scale
+        int numBezierX = numPx / 4;
+        int numBezierY = numPy / 4;
+        //Scaling of each bezier surface. This is also equal to the side length of each surface.
+        //Each surface has the same length and uniformly squared. So, each surface is actually
+        //a square
+        float s = coordMultiplier / std::max(numBezierY, numBezierX);
+        glm::vec3 offset = determineBezierTileOffset();
+        for(int i = 0; i < numBezierY; ++i)
+        {
+            for(int j = 0; j < numBezierX; ++j)
+            {
+                BezierSurface& surf = bezierSurfaces[i * numBezierY + j];
+                //Set the scaling
+                surf.scaling = glm::vec3(s, s, 1.0);
+                //Set the translation to send the current bezier surface to the correct place
+                surf.translation = offset + glm::vec3(j * s, -i * s, 0.0);
+            }
+        }
+    }
+    
+    
+    //Rotation Controller
+    if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
+    {
+        rotationAngle += 10.0f;
+    }
+    if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS)
+    {
+        rotationAngle -= 10.0f;
+    }
+
+}
+
 
 int main()
 {
@@ -424,7 +508,8 @@ int main()
 	Shader shader("Shaders/bezier/bezier.vert",
                   "Shaders/bezier/bezier.frag");
 
-    initScene("input2.txt");
+
+    initScene("input3.txt");
 	// render loop
 	// -----------
 	while (!glfwWindowShouldClose(window))
