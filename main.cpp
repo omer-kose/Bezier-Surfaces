@@ -96,52 +96,6 @@ void scroll_callback(GLFWwindow* window, double xOffset, double yOffset)
 }
 
 
-int setupDependencies()
-{
-	glfwInit();
-	//Specify the version and the OpenGL profile. We are using version 3.3
-	//Note that these functions set features for the next call of glfwCreateWindow
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    #ifdef __APPLE__
-        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-    #endif
-
-	//Create the window object
-	window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "OpenGL Window", NULL, NULL);
-	if (window == nullptr)
-	{
-		std::cout << "Failed to create the window" << std::endl;
-		glfwTerminate();
-		return -1;
-	}
-	glfwMakeContextCurrent(window);
-
-    // Initialize GLEW to setup the OpenGL Function pointers
-    if (GLEW_OK != glewInit())
-    {
-        std::cout << "Failed to initialize GLEW" << std::endl;
-        return EXIT_FAILURE;
-    }
-    
-	//Specify the actual window rectangle for renderings.
-	glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
-
-	//Register our size callback funtion to GLFW.
-	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-	glfwSetCursorPosCallback(window, mouse_callback);
-	glfwSetScrollCallback(window, scroll_callback);
-
-	//GLFW will capture the mouse and will hide the cursor
-	//glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-
-	//Configure Global OpenGL State
-	glEnable(GL_DEPTH_TEST);
-	return 0;
-}
-
-
 
 //For testing purposes.
 GLuint testRectangle()
@@ -407,8 +361,100 @@ void renderBezierSurface(BezierSurface& surf, Shader& shader, int i)
     glDrawElements(GL_TRIANGLES, 3 * surf.tris.size(), GL_UNSIGNED_INT, 0);
 }
 
+//Keyboard callback
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    //If pressed glfwGetKey return GLFW_PRESS, if not it returns GLFW_RELEASE
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+    {
+        glfwSetWindowShouldClose(window, true);
+    }
 
-//Function that will process the inputs, such as keyboard inputs
+    //Sample size controller
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+    {
+        numSamples = std::min(numSamples+2, 80);
+        //Changing numSamples changes the triangulation and thus the OpenGL Buffers.
+        for(int i = 0; i < bezierSurfaces.size(); ++i)
+        {
+            triangulate(bezierSurfaces[i]);
+            setupOpenGLBuffers(bezierSurfaces[i]);
+        }
+        
+    }
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+    {
+        numSamples = std::max(numSamples-2, 2);
+        for(int i = 0; i < bezierSurfaces.size(); ++i)
+        {
+            triangulate(bezierSurfaces[i]);
+            setupOpenGLBuffers(bezierSurfaces[i]);
+        }
+    }
+    
+    //Size controller
+    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
+    {
+        coordMultiplier += 0.1;
+        //Update the offset and the scale
+        int numBezierX = numPx / 4;
+        int numBezierY = numPy / 4;
+        //Scaling of each bezier surface. This is also equal to the side length of each surface.
+        //Each surface has the same length and uniformly squared. So, each surface is actually
+        //a square
+        float s = coordMultiplier / std::max(numBezierY, numBezierX);
+        glm::vec3 offset = determineBezierTileOffset();
+        for(int i = 0; i < numBezierY; ++i)
+        {
+            for(int j = 0; j < numBezierX; ++j)
+            {
+                BezierSurface& surf = bezierSurfaces[i * numBezierY + j];
+                //Set the scaling
+                surf.scaling = glm::vec3(s, s, 1.0);
+                //Set the translation to send the current bezier surface to the correct place
+                surf.translation = offset + glm::vec3(j * s, -i * s, 0.0);
+            }
+        }
+        
+    }
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+    {
+        coordMultiplier = std::max(coordMultiplier - 0.1, 0.1);
+        //Update the offset and the scale
+        int numBezierX = numPx / 4;
+        int numBezierY = numPy / 4;
+        //Scaling of each bezier surface. This is also equal to the side length of each surface.
+        //Each surface has the same length and uniformly squared. So, each surface is actually
+        //a square
+        float s = coordMultiplier / std::max(numBezierY, numBezierX);
+        glm::vec3 offset = determineBezierTileOffset();
+        for(int i = 0; i < numBezierY; ++i)
+        {
+            for(int j = 0; j < numBezierX; ++j)
+            {
+                BezierSurface& surf = bezierSurfaces[i * numBezierY + j];
+                //Set the scaling
+                surf.scaling = glm::vec3(s, s, 1.0);
+                //Set the translation to send the current bezier surface to the correct place
+                surf.translation = offset + glm::vec3(j * s, -i * s, 0.0);
+            }
+        }
+    }
+    
+    
+    //Rotation Controller
+    if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
+    {
+        rotationAngle += 10.0f;
+    }
+    if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS)
+    {
+        rotationAngle -= 10.0f;
+    }
+}
+
+
+//Function that will process the inputs every frame
 void processInput(GLFWwindow* window)
 {
     //If pressed glfwGetKey return GLFW_PRESS, if not it returns GLFW_RELEASE
@@ -502,6 +548,54 @@ void processInput(GLFWwindow* window)
 }
 
 
+int setupDependencies()
+{
+    glfwInit();
+    //Specify the version and the OpenGL profile. We are using version 3.3
+    //Note that these functions set features for the next call of glfwCreateWindow
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    #ifdef __APPLE__
+        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    #endif
+
+    //Create the window object
+    window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "OpenGL Window", NULL, NULL);
+    if (window == nullptr)
+    {
+        std::cout << "Failed to create the window" << std::endl;
+        glfwTerminate();
+        return -1;
+    }
+    glfwMakeContextCurrent(window);
+
+    // Initialize GLEW to setup the OpenGL Function pointers
+    if (GLEW_OK != glewInit())
+    {
+        std::cout << "Failed to initialize GLEW" << std::endl;
+        return EXIT_FAILURE;
+    }
+    
+    //Specify the actual window rectangle for renderings.
+    glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
+
+    //Register our size callback funtion to GLFW.
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    glfwSetCursorPosCallback(window, mouse_callback);
+    glfwSetScrollCallback(window, scroll_callback);
+    glfwSetKeyCallback(window, key_callback);
+
+    //GLFW will capture the mouse and will hide the cursor
+    //glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
+    //Configure Global OpenGL State
+    glEnable(GL_DEPTH_TEST);
+    return 0;
+}
+
+
+
 int main()
 {
 	setupDependencies();
@@ -509,7 +603,7 @@ int main()
                   "Shaders/bezier/bezier.frag");
 
 
-    initScene("input3.txt");
+    initScene("input2.txt");
 	// render loop
 	// -----------
 	while (!glfwWindowShouldClose(window))
@@ -517,7 +611,7 @@ int main()
 		//Update deltaTime
 		updateDeltaTime();
 		// input
-		processInput(window);
+		//processInput(window);
 
 		// render
 		// ------
